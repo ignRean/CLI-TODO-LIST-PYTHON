@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>PyTodo CLI</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#000000" />
+  
+  <!-- Terminal Emulator Styles & Scripts -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+  
+  <!-- Client-Side WebAssembly Python Runtime -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
+  
+  <!-- Supabase Cloud SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="terminal-container">
+    <div id="terminal">
+      <div id="boot-loader">
+        <pre class="boot-logo">
+ ___       _____       _         ____ _     ___ 
+|  _ \ _   |_   _|__  __| | ___   / ___| |   |_ _|
+| |_) | | | || |/ _ \/ _` |/ _ \ | |   | |    | | 
+|  __/| |_| || | (_) | (_| | (_) || |___| |___ | | 
+|_|    \__, ||_| \___/\__,_|\___/  \____|_____|___|
+       |___/                                      </pre>
+        <div class="boot-status">
+          <span class="boot-dot">●</span> PyTodo CLI v2.2.3<br />
+          <span class="boot-spinner">◐</span> <span id="boot-text">Booting WebAssembly Engine...</span>
+        </div>
+      </div>
+    </div>
+    <nav id="mobile-bar" aria-label="Terminal Quick Keys" role="toolbar">
+      <button type="button" class="m-key" data-key="tab">Tab</button>
+      <button type="button" class="m-key" data-key="esc">Esc</button>
+      <button type="button" class="m-key" data-key="up">↑</button>
+      <button type="button" class="m-key" data-key="down">↓</button>
+      <button type="button" class="m-key" data-cmd="ls">ls</button>
+      <button type="button" class="m-key" data-cmd="done ">done</button>
+      <button type="button" class="m-key" data-cmd="add ">add</button>
+      <button type="button" class="m-key" data-cmd="clear">clear</button>
+    </nav>
+  </div>
+  <script src="main.js?v=2.2.4"></script>
+</body>
+</html>
