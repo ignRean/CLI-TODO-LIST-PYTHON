@@ -1,13 +1,16 @@
-const CACHE_NAME = "pytodo-v2.2.4";
+const CACHE_NAME = "pytodo-v2.2.5";
+
+// Compute dynamic base path for subdirectory / GitHub Pages compatibility
+const BASE_PATH = self.location.pathname.replace(/\/sw\.js$/, "/");
 
 // Tier 1: Core application shell (< 350 KB total)
 const CORE_SHELL = [
-  "/",
-  "/index.html",
-  "/style.css",
-  "/main.js",
-  "/main.py",
-  "/manifest.json",
+  BASE_PATH,
+  BASE_PATH + "index.html",
+  BASE_PATH + "style.css",
+  BASE_PATH + "main.js",
+  BASE_PATH + "main.py",
+  BASE_PATH + "manifest.json",
   "https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css",
   "https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js",
   "https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js",
@@ -41,10 +44,10 @@ self.addEventListener("install", (event) => {
         )
       );
 
-      // 2. Queue deferred heavy binaries without blocking immediate activation
-      Promise.allSettled(
+      // 2. Pre-cache heavy binaries within the install lifecycle to ensure offline capability
+      await Promise.allSettled(
         DEFERRED_BINARIES.map((url) =>
-          cache.add(url).catch((err) => console.warn("[SW] Heavy binary queued for runtime:", url, err))
+          cache.add(url).catch((err) => console.warn("[SW] Heavy binary cache skip:", url, err))
         )
       );
     })
@@ -79,7 +82,8 @@ self.addEventListener("fetch", (event) => {
   // 2. Application code: Network-First with fast timeout fallback
   const isAppCode =
     url.origin === self.location.origin &&
-    (url.pathname === "/" ||
+    (url.pathname === BASE_PATH ||
+     url.pathname === "/" ||
      url.pathname.endsWith(".html") ||
      url.pathname.endsWith(".js") ||
      url.pathname.endsWith(".py") ||
@@ -95,23 +99,25 @@ self.addEventListener("fetch", (event) => {
           }
           return response;
         })
-        .catch(() => caches.match(event.request))
+        .catch(() => caches.match(event.request, { ignoreSearch: true }))
     );
     return;
   }
 
   // 3. Heavy static CDN assets: Cache-First
   event.respondWith(
-    caches.match(event.request).then((cached) => {
+    caches.match(event.request, { ignoreSearch: true }).then((cached) => {
       return (
         cached ||
-        fetch(event.request).then((response) => {
-          if (response && response.status === 200) {
-            const resClone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
-          }
-          return response;
-        })
+        fetch(event.request)
+          .then((response) => {
+            if (response && response.status === 200) {
+              const resClone = response.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
+            }
+            return response;
+          })
+          .catch(() => cached || new Response("Offline resource unavailable", { status: 503 }))
       );
     })
   );

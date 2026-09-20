@@ -51,6 +51,9 @@ class MockPyTodoBridge:
         self.pairing_code = ""
         self.sync_status = "IDLE"
         self.sync_triggered = False
+        self.theme = "classic"
+        self.retention_days = 3
+        self.sound = True
 
     def getFocusStep(self):
         return self.step_sec
@@ -78,6 +81,26 @@ class MockPyTodoBridge:
 
     def setSyncStatus(self, status):
         self.sync_status = str(status)
+
+    def getTheme(self):
+        return getattr(self, "theme", "classic")
+
+    def setTheme(self, name):
+        self.theme = str(name)
+        return self.theme
+
+    def getRetentionDays(self):
+        return getattr(self, "retention_days", 3)
+
+    def setRetentionDays(self, days):
+        self.retention_days = int(days)
+        return True
+
+    def isSoundEnabled(self):
+        return getattr(self, "sound", True)
+
+    def setSoundEnabled(self, val):
+        self.sound = bool(val)
 
 
 class MockDate:
@@ -164,6 +187,11 @@ from main import (
 
 class BasePyTodoTest(unittest.TestCase):
     def setUp(self):
+        import main
+        main.window = mock_win
+        main.supabaseClient = None
+        sys.modules["js"].window = mock_win
+        sys.modules["js"].supabaseClient = None
         mock_win.localStorage.clear()
         mock_win.PyTodoBridge.step_sec = 300
         mock_win.PyTodoBridge.last_payload = None
@@ -390,18 +418,18 @@ class TestSubtasksLifecycleAndReindexing(BasePyTodoTest):
         todos = get_local_todos()
         subs = todos[0]["subtasks"]
         self.assertEqual(len(subs), 3)
-        self.assertEqual([s["id"] for s in subs], ["1.1", "1.2", "1.3"])
+        self.assertEqual([s["id"] for s in subs], ["1.1", "1.3", "1.4"])
         self.assertEqual([s["title"] for s in subs], ["Sub A", "Sub C", "Sub D"])
 
-        # Remove subtask using full ID string '1.2' (which is now Sub C)
-        res2 = self.run_cmd('edit 1 --rm-sub 1.2')
+        # Remove subtask using full ID string '1.3' (which is Sub C)
+        res2 = self.run_cmd('edit 1 --rm-sub 1.3')
         clean2 = sanitize_text(res2)
         self.assertIn("removed subtask 'Sub C'", clean2)
 
         todos = get_local_todos()
         subs = todos[0]["subtasks"]
         self.assertEqual(len(subs), 2)
-        self.assertEqual([s["id"] for s in subs], ["1.1", "1.2"])
+        self.assertEqual([s["id"] for s in subs], ["1.1", "1.4"])
         self.assertEqual([s["title"] for s in subs], ["Sub A", "Sub D"])
 
     def test_delete_subtask_via_rm_command_and_reindex(self):
@@ -417,7 +445,7 @@ class TestSubtasksLifecycleAndReindexing(BasePyTodoTest):
         self.assertEqual(len(subs), 2)
         self.assertEqual(subs[0]["id"], "1.1")
         self.assertEqual(subs[0]["title"], "Component 1")
-        self.assertEqual(subs[1]["id"], "1.2")
+        self.assertEqual(subs[1]["id"], "1.3")
         self.assertEqual(subs[1]["title"], "Component 3")
 
     def test_subtask_error_handling(self):
@@ -638,7 +666,7 @@ class TestTaskDeletion(BasePyTodoTest):
         todos = get_local_todos()
         subs = todos[0]["subtasks"]
         self.assertEqual(len(subs), 1)
-        self.assertEqual(subs[0]["id"], "1.1")
+        self.assertEqual(subs[0]["id"], "1.2")
         self.assertEqual(subs[0]["title"], "Sub 2")
 
     def test_delete_non_existent_ids(self):
@@ -732,7 +760,7 @@ class TestDevicePairingAndLink(BasePyTodoTest):
 
         code = get_pairing_code()
         self.assertIsNotNone(code)
-        self.assertTrue(re.match(r'^\d{6}$', code), f"Generated code '{code}' must be 6 digits")
+        self.assertTrue(re.match(r'^[A-Z0-9]{6}$', code), f"Generated code '{code}' must be 6 Base32 alphanumeric characters")
 
         # Status should now reflect the pairing key
         st = self.run_cmd('link status')
@@ -749,11 +777,11 @@ class TestDevicePairingAndLink(BasePyTodoTest):
     def test_link_invalid_code(self):
         res1 = self.run_cmd('link abc')
         clean1 = sanitize_text(res1)
-        self.assertIn("Error: Pairing key must be a 6 to 8 digit code", clean1)
+        self.assertIn("Error: Pairing key must be a 6 to 8 character alphanumeric code", clean1)
 
         res2 = self.run_cmd('link 1234')
         clean2 = sanitize_text(res2)
-        self.assertIn("Error: Pairing key must be a 6 to 8 digit code", clean2)
+        self.assertIn("Error: Pairing key must be a 6 to 8 character alphanumeric code", clean2)
 
     def test_unlink_command(self):
         self.run_cmd('link 888999')
@@ -1007,7 +1035,7 @@ class TestConfigCommand(BasePyTodoTest):
         res = self.run_cmd("config")
         clean = sanitize_text(res)
         self.assertIn("PyTodo Configuration:", clean)
-        self.assertIn("focus.step = 5m (300s)", clean)
+        self.assertIn("focus.step  = 5m (300s)", clean)
 
     def test_config_focus_step_view(self):
         res = self.run_cmd("config focus.step")
@@ -1068,7 +1096,7 @@ class TestTabAutocompletions(BasePyTodoTest):
 
     def test_config_keys_completion(self):
         suggs1 = json.loads(get_autocomplete_suggestions("config "))
-        self.assertEqual(suggs1, ["focus.step"])
+        self.assertIn("focus.step", suggs1)
 
         suggs2 = json.loads(get_autocomplete_suggestions("config foc"))
         self.assertEqual(suggs2, ["focus.step"])

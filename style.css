@@ -36,17 +36,41 @@ html, body {
   flex-direction: column;
   background-color: var(--term-bg);
   position: relative;
+  overflow: hidden;
   transition: background-color 0.15s ease;
 }
 
 #terminal {
-  flex: 1 1 auto;
+  flex: 1 1 0px;
+  min-height: 0;
+  min-width: 0;
   width: 100%;
-  height: 100%;
   padding: 6px;
   overflow: hidden;
   background-color: var(--term-bg);
   transition: background-color 0.15s ease;
+}
+
+/* Adaptive Dynamic Terminal Cushion:
+   Desktop: 0px (full character row density).
+   Mobile / Touch: 24px clearance elevating prompt above #mobile-bar.
+   Virtual Keyboard Active: 40px clearance above onscreen soft keyboard.
+*/
+#terminal-cushion {
+  flex: 0 0 0px;
+  width: 100%;
+  background-color: var(--term-bg);
+  transition: flex-basis 0.15s ease, background-color 0.15s ease;
+}
+
+@media (pointer: coarse), (max-width: 768px) {
+  #terminal-cushion {
+    flex: 0 0 24px;
+  }
+}
+
+body.keyboard-active #terminal-cushion {
+  flex: 0 0 40px !important;
 }
 
 /* Pre-boot Instant Terminal Shell */
@@ -95,12 +119,12 @@ html, body {
 /* Mobile Quick-Key Accessory Bar */
 #mobile-bar {
   display: none;
-  flex: 0 0 42px;
-  height: 42px;
+  flex: 0 0 auto;
+  height: calc(42px + env(safe-area-inset-bottom, 0px));
   width: 100%;
   background-color: var(--bar-bg);
   border-top: 1px solid var(--bar-border);
-  padding: 2px 4px;
+  padding: 2px 4px calc(2px + env(safe-area-inset-bottom, 0px)) 4px;
   gap: 4px;
   align-items: center;
   overflow-x: auto;

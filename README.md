@@ -44,11 +44,14 @@ Run directly with Python:
 # Display help and commands
 python main.py --help
 
-# Add a task with a deadline
-python main.py add "Finish presentation" --due 17:00
+# Frictionless Natural Language Add (Auto-extracts deadline & duration)
+python main.py add Finish presentation by 5pm for 45m
 
-# Add a task with estimated duration
-python main.py add "Deep Work Block" --duration 90m
+# Natural Language with Subtask checkpoint
+python main.py add "Launch v2" -s "Deploy backend at 3pm for 20m"
+
+# Traditional explicit flags (fully supported)
+python main.py add "Deep Work Block" --duration 90m --due 18:00
 
 # List active daily tasks
 python main.py ls

@@ -44,6 +44,26 @@ class MockPyTodoBridge:
     def getLocalISODate(self):
         return "2026-09-19"
 
+    def getTheme(self):
+        return getattr(self, "theme", "classic")
+
+    def setTheme(self, name):
+        self.theme = str(name)
+        return self.theme
+
+    def getRetentionDays(self):
+        return getattr(self, "retention_days", 3)
+
+    def setRetentionDays(self, days):
+        self.retention_days = int(days)
+        return True
+
+    def isSoundEnabled(self):
+        return getattr(self, "sound", True)
+
+    def setSoundEnabled(self, val):
+        self.sound = bool(val)
+
 class MockWindow:
     def __init__(self):
         self.PyTodoBridge = MockPyTodoBridge()

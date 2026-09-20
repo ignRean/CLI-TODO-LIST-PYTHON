@@ -4,9 +4,16 @@
 // ============================================================================
 
 // --- 1. Cloud Client Configuration ---
-const SUPABASE_URL = "https://khaphfzxhheeioubdppt.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_77e4u4aQtpNyOPmdMu6yGw_mlZ6FK8a";
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const SUPABASE_URL = "https://hbmjlfdvrjmmqufbtieb.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_hRyByLQBULkR7wBZ3i9pVA_i6420Yqs";
+let supabaseClient = null;
+try {
+  if (window.supabase && typeof window.supabase.createClient === "function" && SUPABASE_URL && SUPABASE_ANON_KEY) {
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+} catch (e) {
+  console.warn("[PyTodo] Supabase client initialization error:", e);
+}
 window.supabaseClient = supabaseClient;
 
 // --- 2. Virtual Terminal Display & Multi-Theme Setup ---
@@ -232,6 +239,29 @@ function applyTheme(name) {
   return themeKey;
 }
 
+// --- Shell State, Key History & Modes ---
+const TerminalMode = {
+  SHELL: "SHELL",
+  TOP: "TOP",
+  FOCUS: "FOCUS"
+};
+
+let currentMode = TerminalMode.SHELL;
+let pyodide = null;
+let inputBuffer = "";
+let cursorIndex = 0;
+const commandHistory = [];
+let historyIndex = -1;
+let draftBuffer = "";
+let syncStatus = navigator.onLine ? "SYNCED" : "OFFLINE";
+let topDashboardInterval = null;
+let promptTickerInterval = null;
+let activeFocusSession = null;
+let focusInterval = null;
+let lastKnownDate = new Date().toLocaleDateString("en-CA");
+let lastTimerAdjustTime = 0;
+let isCommandRunning = false;
+
 // Initial theme activation before terminal opens
 const initialThemeKey = getActiveThemeName();
 const term = new Terminal({
@@ -253,19 +283,35 @@ if (terminalElem) {
   terminalElem.innerHTML = "";
 }
 term.open(terminalElem);
-fitAddon.fit();
 window.term = term;
 applyTheme(initialThemeKey);
-term.focus();
-
+let resizeRaf = null;
 function handleViewportResize() {
-  if (window.visualViewport && terminalContainer) {
-    terminalContainer.style.height = `${window.visualViewport.height}px`;
-    window.scrollTo(0, 0);
-  }
-  fitAddon.fit();
-  term.scrollToBottom();
+  if (resizeRaf) cancelAnimationFrame(resizeRaf);
+  resizeRaf = requestAnimationFrame(() => {
+    if (window.visualViewport && terminalContainer) {
+      const vvHeight = window.visualViewport.height;
+      const winHeight = window.innerHeight;
+      terminalContainer.style.height = `${vvHeight}px`;
+      window.scrollTo(0, 0);
+
+      // Detect virtual keyboard deployment (visualViewport shrink > 120px)
+      const isKeyboardOpen = (winHeight - vvHeight) > 120;
+      document.body.classList.toggle("keyboard-active", isKeyboardOpen);
+    }
+    if (fitAddon && term && terminalElem && terminalElem.clientWidth > 0) {
+      try { fitAddon.fit(); } catch (e) {}
+    }
+    if (pyodide && currentMode === TerminalMode.SHELL && inputBuffer.length === 0) {
+      updatePromptHeader();
+    } else if (term) {
+      term.scrollToBottom();
+    }
+  });
 }
+
+handleViewportResize();
+term.focus();
 
 window.addEventListener("resize", handleViewportResize);
 if (window.visualViewport) {
@@ -283,6 +329,7 @@ window.addEventListener("touchstart", (e) => {
 
 // --- 3. Web Audio API — Zero-Asset 8-Bit Retro Audio Engine ---
 let audioCtx = null;
+let activeAudioVoice = null;
 
 function getAudioContext() {
   if (!audioCtx) {
@@ -305,89 +352,231 @@ function unlockAudioGesture() {
   window.addEventListener(evt, unlockAudioGesture, { passive: true, once: true });
 });
 
+function isSoundGloballyEnabled() {
+  try {
+    return window.localStorage.getItem("py_sound_enabled") !== "false";
+  } catch (e) {
+    return true;
+  }
+}
+
 function playTone(soundType) {
-  if (window.localStorage.getItem("py_sound_enabled") === "false") return;
+  if (!isSoundGloballyEnabled()) return;
+  const validSounds = [
+    "done", "subtask", "fail", "wipe",
+    "add", "rm", "undone", "alarm", "celebration", "streak",
+    "revive", "click", "step_up", "step_down", "theme"
+  ];
+  if (!validSounds.includes(soundType)) return;
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
-    if (ctx.state === "suspended") {
-      ctx.resume().catch(() => {});
-    }
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
 
-    if (soundType === "done") {
-      // Upbeat retro arcade arpeggio: E5 (659Hz) -> G#5 (831Hz) -> B5 (988Hz) -> E6 (1319Hz)
-      osc.type = "square";
-      osc.frequency.setValueAtTime(659.25, now);
-      osc.frequency.setValueAtTime(830.61, now + 0.06);
-      osc.frequency.setValueAtTime(987.77, now + 0.12);
-      osc.frequency.setValueAtTime(1318.51, now + 0.18);
-      gain.gain.setValueAtTime(0.08, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
-      osc.start(now);
-      osc.stop(now + 0.32);
-    } else if (soundType === "subtask") {
-      // High dual-tone chirp: A5 (880Hz) -> E6 (1319Hz)
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(880, now);
-      osc.frequency.setValueAtTime(1318.51, now + 0.05);
-      gain.gain.setValueAtTime(0.08, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
-      osc.start(now);
-      osc.stop(now + 0.18);
-    } else if (soundType === "fail") {
-      // Low descending buzz: 180Hz -> 90Hz
-      osc.type = "sawtooth";
-      osc.frequency.setValueAtTime(180, now);
-      osc.frequency.exponentialRampToValueAtTime(90, now + 0.22);
-      gain.gain.setValueAtTime(0.1, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
-      osc.start(now);
-      osc.stop(now + 0.22);
-    } else if (soundType === "wipe") {
-      // Descending 8-bit game-over arpeggio: C4 (261Hz) -> G3 (196Hz) -> E3 (164Hz) -> C3 (130Hz)
-      osc.type = "sawtooth";
-      osc.frequency.setValueAtTime(261.63, now);
-      osc.frequency.setValueAtTime(196.00, now + 0.1);
-      osc.frequency.setValueAtTime(164.81, now + 0.2);
-      osc.frequency.setValueAtTime(130.81, now + 0.3);
-      gain.gain.setValueAtTime(0.12, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
-      osc.start(now);
-      osc.stop(now + 0.55);
+    const executeSound = () => {
+      const now = ctx.currentTime;
+
+      // Monophonic voice stealing: fade out prior voice over 8ms to prevent polyphonic DAC clipping
+      if (activeAudioVoice) {
+        try {
+          activeAudioVoice.gain.gain.cancelScheduledValues(now);
+          activeAudioVoice.gain.gain.linearRampToValueAtTime(0.0001, now + 0.008);
+          activeAudioVoice.osc.stop(now + 0.009);
+        } catch (err) {}
+      }
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      activeAudioVoice = { osc, gain };
+
+      if (soundType === "done") {
+        // Upbeat retro arcade arpeggio: E5 (659Hz) -> G#5 (831Hz) -> B5 (988Hz) -> E6 (1319Hz)
+        osc.type = "square";
+        osc.frequency.setValueAtTime(659.25, now);
+        osc.frequency.setValueAtTime(830.61, now + 0.06);
+        osc.frequency.setValueAtTime(987.77, now + 0.12);
+        osc.frequency.setValueAtTime(1318.51, now + 0.18);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+        osc.start(now);
+        osc.stop(now + 0.32);
+      } else if (soundType === "subtask") {
+        // High dual-tone chirp: A5 (880Hz) -> E6 (1319Hz)
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.setValueAtTime(1318.51, now + 0.05);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+        osc.start(now);
+        osc.stop(now + 0.18);
+      } else if (soundType === "fail") {
+        // Low descending buzz: 180Hz -> 90Hz
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.exponentialRampToValueAtTime(90, now + 0.22);
+        gain.gain.setValueAtTime(0.1, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+        osc.start(now);
+        osc.stop(now + 0.22);
+      } else if (soundType === "wipe") {
+        // Descending 8-bit game-over arpeggio: C4 (261Hz) -> G3 (196Hz) -> E3 (164Hz) -> C3 (130Hz)
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(261.63, now);
+        osc.frequency.setValueAtTime(196.00, now + 0.1);
+        osc.frequency.setValueAtTime(164.81, now + 0.2);
+        osc.frequency.setValueAtTime(130.81, now + 0.3);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
+        osc.start(now);
+        osc.stop(now + 0.55);
+      } else if (soundType === "add") {
+        // Crisp Ascending Pop: 440Hz -> 880Hz -> 1175Hz
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(440.00, now);
+        osc.frequency.exponentialRampToValueAtTime(880.00, now + 0.04);
+        osc.frequency.setValueAtTime(1174.66, now + 0.05);
+        gain.gain.setValueAtTime(0.09, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.085);
+        osc.start(now);
+        osc.stop(now + 0.085);
+      } else if (soundType === "rm") {
+        // Crunchy Downward Whoosh / Drop: 240Hz -> 60Hz
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(240.00, now);
+        osc.frequency.exponentialRampToValueAtTime(60.00, now + 0.12);
+        gain.gain.setValueAtTime(0.09, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+        osc.start(now);
+        osc.stop(now + 0.12);
+      } else if (soundType === "undone") {
+        // Springy Rubber-Band "Boing": 880Hz -> 330Hz -> 587Hz -> 440Hz
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(880.00, now);
+        osc.frequency.exponentialRampToValueAtTime(330.00, now + 0.06);
+        osc.frequency.exponentialRampToValueAtTime(587.33, now + 0.11);
+        osc.frequency.exponentialRampToValueAtTime(440.00, now + 0.16);
+        gain.gain.setValueAtTime(0.09, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+        osc.start(now);
+        osc.stop(now + 0.16);
+      } else if (soundType === "alarm") {
+        // 3-Pulse Resonant Pomodoro Gong: C4 -> E4 -> C5
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(261.63, now);
+        osc.frequency.setValueAtTime(329.63, now + 0.32);
+        osc.frequency.setValueAtTime(523.25, now + 0.64);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.005, now + 0.30);
+        gain.gain.setValueAtTime(0.13, now + 0.32);
+        gain.gain.exponentialRampToValueAtTime(0.005, now + 0.62);
+        gain.gain.setValueAtTime(0.15, now + 0.64);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.40);
+        osc.start(now);
+        osc.stop(now + 1.40);
+      } else if (soundType === "celebration") {
+        // 100% Board Clear Victory Fanfare: C5 -> E5 -> G5 -> B5 -> C6 -> E6
+        osc.type = "square";
+        osc.frequency.setValueAtTime(523.25, now);
+        osc.frequency.setValueAtTime(659.25, now + 0.08);
+        osc.frequency.setValueAtTime(783.99, now + 0.16);
+        osc.frequency.setValueAtTime(987.77, now + 0.24);
+        osc.frequency.setValueAtTime(1046.50, now + 0.32);
+        osc.frequency.setValueAtTime(1318.51, now + 0.44);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.setValueAtTime(0.11, now + 0.32);
+        gain.gain.setValueAtTime(0.12, now + 0.44);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.82);
+        osc.start(now);
+        osc.stop(now + 0.82);
+      } else if (soundType === "streak") {
+        // Ascending Brass Square Wave Fanfare with Triumph Vibrato: F4 -> A4 -> C5 -> F5 -> A5 (flutter)
+        osc.type = "square";
+        osc.frequency.setValueAtTime(349.23, now);
+        osc.frequency.setValueAtTime(440.00, now + 0.09);
+        osc.frequency.setValueAtTime(523.25, now + 0.18);
+        osc.frequency.setValueAtTime(698.46, now + 0.27);
+        osc.frequency.setValueAtTime(880.00, now + 0.41);
+        osc.frequency.setValueAtTime(888.00, now + 0.46);
+        osc.frequency.setValueAtTime(880.00, now + 0.51);
+        osc.frequency.setValueAtTime(888.00, now + 0.56);
+        osc.frequency.setValueAtTime(880.00, now + 0.61);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.setValueAtTime(0.11, now + 0.27);
+        gain.gain.setValueAtTime(0.12, now + 0.41);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.72);
+        osc.start(now);
+        osc.stop(now + 0.72);
+      } else if (soundType === "revive") {
+        // Phoenix Resurrection 1-Up: C4 -> E4 -> G4 -> C6
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(261.63, now);
+        osc.frequency.setValueAtTime(329.63, now + 0.07);
+        osc.frequency.setValueAtTime(392.00, now + 0.14);
+        osc.frequency.setValueAtTime(1046.50, now + 0.21);
+        gain.gain.setValueAtTime(0.09, now);
+        gain.gain.linearRampToValueAtTime(0.11, now + 0.21);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
+        osc.start(now);
+        osc.stop(now + 0.42);
+      } else if (soundType === "click") {
+        // Stopwatch Pause/Resume Click: 1200Hz
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(1200.00, now);
+        gain.gain.setValueAtTime(0.07, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.02);
+        osc.start(now);
+        osc.stop(now + 0.02);
+      } else if (soundType === "step_up") {
+        // High micro click for +: 1500Hz
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(1500.00, now);
+        gain.gain.setValueAtTime(0.06, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.028);
+        osc.start(now);
+        osc.stop(now + 0.028);
+      } else if (soundType === "step_down") {
+        // Low micro click for -: 800Hz
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(800.00, now);
+        gain.gain.setValueAtTime(0.06, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.028);
+        osc.start(now);
+        osc.stop(now + 0.028);
+      } else if (soundType === "theme") {
+        // Sci-Fi Analog Filter Sweep: 300Hz -> 1200Hz -> 600Hz
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(300.00, now);
+        osc.frequency.exponentialRampToValueAtTime(1200.00, now + 0.14);
+        osc.frequency.exponentialRampToValueAtTime(600.00, now + 0.22);
+        gain.gain.setValueAtTime(0.07, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+        osc.start(now);
+        osc.stop(now + 0.22);
+      }
+
+      osc.onended = () => {
+        try {
+          osc.disconnect();
+          gain.disconnect();
+          if (activeAudioVoice && activeAudioVoice.osc === osc) {
+            activeAudioVoice = null;
+          }
+        } catch (err) {}
+      };
+    };
+
+    if (ctx.state === "suspended") {
+      ctx.resume().then(executeSound).catch(() => {});
+    } else {
+      executeSound();
     }
   } catch (e) {
     // Non-fatal: Audio failures should never block CLI commands
   }
 }
 
-// --- 4. Shell State, Key History & Modes ---
-const TerminalMode = {
-  SHELL: "SHELL",
-  TOP: "TOP",
-  FOCUS: "FOCUS"
-};
-
-let currentMode = TerminalMode.SHELL;
-let pyodide = null;
-let inputBuffer = "";
-let cursorIndex = 0;
-const commandHistory = [];
-let historyIndex = -1;
-let draftBuffer = "";
-let syncStatus = navigator.onLine ? "SYNCED" : "OFFLINE";
-let topDashboardInterval = null;
-let promptTickerInterval = null;
-let activeFocusSession = null;
-let focusInterval = null;
-let lastKnownDate = new Date().toLocaleDateString("en-CA");
-let lastTimerAdjustTime = 0;
-
-// --- 5. PyTodo JavaScript <-> Python Bridge API ---
+// --- 4. PyTodo JavaScript <-> Python Bridge API ---
 window.PyTodoBridge = {
   playSound: (soundType) => playTone(soundType),
   setSoundEnabled: (enabled) => {
@@ -454,6 +643,22 @@ window.PyTodoBridge = {
     return true;
   },
 
+  downloadJSON: (filename, content) => {
+    try {
+      const blob = new Blob([content], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("[Bridge] downloadJSON error:", e);
+    }
+  },
+
   // Multi-Theme Controls
   setTheme: (name) => applyTheme(name),
   getTheme: () => getActiveThemeName(),
@@ -492,6 +697,74 @@ window.PyTodoBridge = {
     } else {
       window.localStorage.removeItem("py_todo_history");
     }
+  },
+
+  // --- Supabase Cloud Sync Methods (invoked natively from JS to avoid Pyodide PostgREST Thenable proxying) ---
+  supabaseInsertAccount: async (candidate) => {
+    if (!window.supabaseClient) return JSON.stringify({ error: "Supabase client not initialized" });
+    try {
+      const { error } = await window.supabaseClient
+        .from("todo_accounts")
+        .insert({ pairing_code: candidate });
+      return JSON.stringify({ error: error ? error.message : null });
+    } catch (err) {
+      return JSON.stringify({ error: err.message || String(err) });
+    }
+  },
+
+  supabaseCheckAccount: async (code) => {
+    if (!window.supabaseClient) return JSON.stringify({ error: "Supabase client not initialized" });
+    try {
+      const { data, error } = await window.supabaseClient
+        .from("todo_accounts")
+        .select("pairing_code")
+        .eq("pairing_code", code);
+      return JSON.stringify({ data: data || [], error: error ? error.message : null });
+    } catch (err) {
+      return JSON.stringify({ data: [], error: err.message || String(err) });
+    }
+  },
+
+  supabaseDeleteTombstones: async (pairingCode, tombstonesJson) => {
+    if (!window.supabaseClient) return JSON.stringify({ error: "Supabase client not initialized" });
+    try {
+      const tombstones = typeof tombstonesJson === "string" ? JSON.parse(tombstonesJson) : tombstonesJson;
+      const { error } = await window.supabaseClient
+        .from("todos")
+        .delete()
+        .eq("pairing_code", pairingCode)
+        .in("id", tombstones);
+      return JSON.stringify({ error: error ? error.message : null });
+    } catch (err) {
+      return JSON.stringify({ error: err.message || String(err) });
+    }
+  },
+
+  supabaseFetchTodos: async (pairingCode, todayDate) => {
+    if (!window.supabaseClient) return JSON.stringify({ error: "Supabase client not initialized" });
+    try {
+      const { data, error } = await window.supabaseClient
+        .from("todos")
+        .select("*")
+        .eq("pairing_code", pairingCode)
+        .gte("task_date", todayDate);
+      return JSON.stringify({ data: data || [], error: error ? error.message : null });
+    } catch (err) {
+      return JSON.stringify({ data: [], error: err.message || String(err) });
+    }
+  },
+
+  supabaseUpsertTodos: async (batchPayloadJson) => {
+    if (!window.supabaseClient) return JSON.stringify({ error: "Supabase client not initialized" });
+    try {
+      const payload = typeof batchPayloadJson === "string" ? JSON.parse(batchPayloadJson) : batchPayloadJson;
+      const { error } = await window.supabaseClient
+        .from("todos")
+        .upsert(payload);
+      return JSON.stringify({ error: error ? error.message : null });
+    } catch (err) {
+      return JSON.stringify({ error: err.message || String(err) });
+    }
   }
 };
 
@@ -513,68 +786,141 @@ function getSyncBadge() {
   return "\x1b[32m[● SYNCED]\x1b[0m";
 }
 
+function stripAnsi(str) {
+  return (str || "").replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+}
+
+function getDisplayWidth(str) {
+  const clean = stripAnsi(str);
+  let w = 0;
+  for (const ch of clean) {
+    const code = ch.codePointAt(0);
+    if (
+      (code >= 0x1f300 && code <= 0x1f9ff) ||
+      (code >= 0x2600 && code <= 0x27bf) ||
+      (code >= 0x2e80 && code <= 0x9fff) ||
+      (code >= 0xff01 && code <= 0xff60)
+    ) {
+      w += 2;
+    } else {
+      w += 1;
+    }
+  }
+  return w;
+}
+
+function truncateAnsi(str, maxCols) {
+  if (maxCols <= 0) return "";
+  let cur = 0;
+  let out = "";
+  let esc = "";
+  let inEsc = false;
+
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    if (c === "\x1b") {
+      inEsc = true;
+      esc = c;
+      continue;
+    }
+    if (inEsc) {
+      esc += c;
+      if (/[a-zA-Z]/.test(c)) {
+        inEsc = false;
+        out += esc;
+      }
+      continue;
+    }
+    const code = c.codePointAt(0);
+    const cw = ((code >= 0x1f300 && code <= 0x1f9ff) || (code >= 0x2600 && code <= 0x27bf)) ? 2 : 1;
+    if (cur + cw > maxCols) break;
+    out += c;
+    cur += cw;
+  }
+  return out + "\x1b[0m";
+}
+
 function getPromptBanner() {
   const now = new Date();
   const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
   const diffSec = Math.max(0, Math.floor((midnight - now) / 1000));
   const countdownStr = formatCountdown(diffSec);
+  const miniCountdown = `${Math.floor(diffSec / 3600)}h${Math.floor((diffSec % 3600) / 60)}m`;
   const dateStr = now.toLocaleDateString("en-CA");
+  const cols = term && term.cols ? term.cols : 80;
+  const maxSafeWidth = Math.max(16, cols - 1);
 
   let taskProgress = "";
+  let doneCount = 0;
+  let totalCount = 0;
   try {
     const raw = window.localStorage.getItem("py_pwa_todos");
     if (raw) {
       const todos = JSON.parse(raw);
       if (Array.isArray(todos) && todos.length > 0) {
-        const doneCount = todos.filter((t) => t.done).length;
-        taskProgress = ` | ${doneCount}/${todos.length} Done`;
+        totalCount = todos.length;
+        doneCount = todos.filter((t) => t.done).length;
+        taskProgress = ` | ${doneCount}/${totalCount} Done`;
       }
     }
   } catch (e) {}
 
   // Discipline streak flame indicator
   let streakBadge = "";
+  let streakNum = 0;
   try {
     const rawStreak = window.localStorage.getItem("py_todo_streak");
     if (rawStreak) {
       const streakObj = JSON.parse(rawStreak);
-      const curStreak = parseInt(streakObj.current_streak, 10) || 0;
-      if (curStreak > 0) {
-        streakBadge = ` | \x1b[1;33m🔥${curStreak}\x1b[90m`;
+      streakNum = parseInt(streakObj.current_streak, 10) || 0;
+      if (streakNum > 0) {
+        streakBadge = ` | \x1b[1;33m🔥${streakNum}\x1b[90m`;
       }
     }
   } catch (e) {}
 
-  const pairing = window.localStorage.getItem("py_todo_pairing_code");
+  const pairing = window.localStorage.getItem("py_todo_pairing_code") || "";
   const linkBadge = pairing ? ` | \x1b[36m#${pairing}\x1b[90m` : "";
   const syncBadge = getSyncBadge();
-  const cols = term && term.cols ? term.cols : 80;
 
-  // Single-line compact banner for narrow mobile screens (<60 cols) to eliminate the \x1b[1A cursor desync bug
-  if (cols < 60) {
-    const miniCountdown = `${Math.floor(diffSec / 3600)}h${Math.floor((diffSec % 3600) / 60)}m`;
-    return `\x1b[90m[${miniCountdown}${streakBadge}${taskProgress} | ${syncBadge}\x1b[90m]\x1b[0m`;
+  let banner = "";
+  if (cols >= 78) {
+    banner = `\x1b[90m[${dateStr}${streakBadge} | ${countdownStr} to Midnight${taskProgress}${linkBadge} | ${syncBadge}\x1b[90m]\x1b[0m`;
+  } else if (cols >= 55) {
+    const taskPart = totalCount > 0 ? ` | ${doneCount}/${totalCount}` : "";
+    banner = `\x1b[90m[${countdownStr}${streakBadge}${taskPart} | ${syncBadge}\x1b[90m]\x1b[0m`;
+  } else if (cols >= 36) {
+    const sPart = streakNum > 0 ? ` \x1b[1;33m🔥${streakNum}\x1b[90m` : "";
+    const taskPart = totalCount > 0 ? ` ${doneCount}/${totalCount}` : "";
+    const sBadge = navigator.onLine ? "\x1b[32m[●]\x1b[90m" : "\x1b[90m[○]\x1b[90m";
+    banner = `\x1b[90m[${miniCountdown}${sPart}${taskPart} | ${sBadge}]\x1b[0m`;
+  } else {
+    const sPart = streakNum > 0 ? ` \x1b[1;33m🔥${streakNum}\x1b[90m` : "";
+    const sDot = navigator.onLine ? "\x1b[32m●\x1b[90m" : "\x1b[90m○\x1b[90m";
+    banner = `\x1b[90m[${miniCountdown}${sPart} ${sDot}]\x1b[0m`;
   }
 
-  return `\x1b[90m[${dateStr}${streakBadge} | ${countdownStr} to Midnight${taskProgress}${linkBadge} | ${syncBadge}\x1b[90m]\x1b[0m`;
+  if (getDisplayWidth(banner) > maxSafeWidth) {
+    banner = truncateAnsi(banner, maxSafeWidth);
+  }
+  return banner;
 }
 
 function renderPrompt(newline = true) {
   if (currentMode !== TerminalMode.SHELL) return;
   const banner = getPromptBanner();
   if (newline) {
-    term.write(`\x1b[0m\r\n${banner}\r\n\x1b[1;36mtodo>\x1b[0m `);
+    term.write(`\x1b[0m\r\n\x1b[?7l${banner}\x1b[?7h\r\n\x1b[1;36mtodo>\x1b[0m `);
   } else {
-    term.write(`\x1b[0m\r\x1b[K${banner}\r\n\x1b[1;36mtodo>\x1b[0m `);
+    updatePromptHeader();
   }
 }
 
 function updatePromptHeader() {
   // Update in place only if user has not typed anything
   if (currentMode === TerminalMode.SHELL && inputBuffer.length === 0) {
-    // Save cursor position, move up, re-render header, restore
-    // In xterm.js, simply redraw prompt line:
-    term.write(`\r\x1b[K\x1b[1A\r\x1b[K${getPromptBanner()}\r\n\x1b[1;36mtodo>\x1b[0m `);
+    const banner = getPromptBanner();
+    term.write(`\x1b[?7l\r\x1b[K\x1b[1A\r\x1b[K${banner}\x1b[1E\r\x1b[K\x1b[1;36mtodo>\x1b[0m \x1b[?7h`);
   }
 }
 
@@ -648,8 +994,12 @@ function debounceSync() {
     try {
       syncStatus = "SYNCING";
       updatePromptHeader();
-      await pyodide.runPythonAsync("cli_sync([])");
-      syncStatus = "SYNCED";
+      const res = await pyodide.runPythonAsync("cli_sync([])");
+      if (res && (String(res).toLowerCase().includes("error") || String(res).includes("[!]"))) {
+        syncStatus = "OFFLINE";
+      } else {
+        syncStatus = "SYNCED";
+      }
       updatePromptHeader();
     } catch (e) {
       syncStatus = "OFFLINE";
@@ -685,6 +1035,7 @@ function enterTopDashboard(isFullscreen = false) {
   }
   currentMode = TerminalMode.TOP;
   term.write("\x1b[?25l\x1b[2J\x1b[H"); // Hide cursor, clear screen, home
+  updateMobileBarForMode(TerminalMode.TOP);
 
   const renderFrame = async () => {
     if (currentMode !== TerminalMode.TOP || !pyodide) return;
@@ -713,6 +1064,7 @@ function exitTopDashboard() {
   }
   currentMode = TerminalMode.SHELL;
   term.write("\x1b[?25h\x1b[2J\x1b[H"); // Restore cursor, clear screen
+  updateMobileBarForMode(TerminalMode.SHELL);
   renderPrompt();
 }
 
@@ -736,20 +1088,17 @@ function fmtStep(sec) {
 function renderFocusSessionFrame() {
   if (currentMode !== TerminalMode.FOCUS || !activeFocusSession) return;
   const s = activeFocusSession;
+  const cols = (term && term.cols) ? Math.max(30, term.cols) : 80;
   
   const safeTotal = Math.max(1, s.totalSec);
   const rawPct = (s.elapsedSec / safeTotal) * 100.0;
   const pct = isNaN(rawPct) ? 0.0 : Math.min(100.0, Math.max(0.0, rawPct));
   const remPct = Math.min(100.0, Math.max(0.0, (s.remainingSec / safeTotal) * 100.0));
 
-  const barWidth = 36;
+  const barWidth = Math.max(6, Math.min(36, cols - 24));
   const filled = isNaN(pct) ? 0 : Math.min(barWidth, Math.max(0, Math.floor((pct / 100.0) * barWidth)));
 
-  // Visual Task Ageing color coding:
-  // remPct > 30% -> Green (\x1b[32m)
-  // remPct <= 30% -> Bright Yellow (\x1b[1;33m)
-  // remPct <= 15% (or <= 3m) -> Orange (\x1b[38;5;208m)
-  // remPct <= 5% (or <= 1m) -> Bold Blinking Red (\x1b[1;5;31m)
+  // Visual Task Ageing color coding
   let barColor = "\x1b[32m";
   if (remPct <= 5.0 || s.remainingSec <= 60) {
     barColor = "\x1b[1;5;31m";
@@ -768,22 +1117,72 @@ function renderFocusSessionFrame() {
     stateBadge = "\x1b[1;33m[⏸ PAUSED]\x1b[0m";
   }
 
-  const targetLabel = s.parentTitle
-    ? `\x1b[1;36m[${s.id}]\x1b[0m ${s.title} \x1b[90m(Parent: ${s.parentTitle})\x1b[0m`
-    : `\x1b[1;36m[${s.id}]\x1b[0m ${s.title}`;
+  // Responsive Header Banner
+  const titleText = " PYTODO FOCUS ENGINE ";
+  let headerBanner = "";
+  if (cols >= 40) {
+    const remaining = Math.max(0, cols - titleText.length);
+    const left = Math.floor(remaining / 2);
+    const right = remaining - left;
+    headerBanner = "\x1b[1;37m" + "=".repeat(left) + titleText + "=".repeat(right) + "\x1b[0m";
+  } else {
+    headerBanner = "\x1b[1;37m=== FOCUS ENGINE ===\x1b[0m";
+  }
+
+  const divider = "\x1b[90m" + "-".repeat(Math.min(cols, 67)) + "\x1b[0m";
+
+  // Responsive Target Label
+  const targetPrefix = `Target:    [${s.id}] `;
+  const availTarget = Math.max(8, cols - targetPrefix.length);
+  let safeTitle = s.title;
+  if (s.parentTitle && cols >= 68) {
+    const parentNote = ` (Parent: ${s.parentTitle})`;
+    const availForTitle = Math.max(6, availTarget - parentNote.length);
+    if (safeTitle.length > availForTitle) {
+      safeTitle = safeTitle.slice(0, Math.max(1, availForTitle - 1)) + "…";
+    }
+    safeTitle = `${safeTitle} \x1b[90m${parentNote}\x1b[0m`;
+  } else {
+    if (safeTitle.length > availTarget) {
+      safeTitle = safeTitle.slice(0, Math.max(1, availTarget - 1)) + "…";
+    }
+  }
+  const targetLine = `Target:    \x1b[1;36m[${s.id}]\x1b[0m ${safeTitle}`;
+
+  // Responsive Session Time Summary
+  let sessionLine = "";
+  if (cols >= 68) {
+    sessionLine = `Session:   ${fmtTime(s.totalSec)} Total  |  Remaining: \x1b[1m${fmtTime(s.remainingSec)}\x1b[0m  |  Elapsed: ${fmtTime(s.elapsedSec)}`;
+  } else if (cols >= 46) {
+    sessionLine = `Session:   Rem: \x1b[1m${fmtTime(s.remainingSec)}\x1b[0m | Elapsed: ${fmtTime(s.elapsedSec)}`;
+  } else {
+    sessionLine = `Rem: \x1b[1m${fmtTime(s.remainingSec)}\x1b[0m (${fmtTime(s.totalSec)} tot)`;
+  }
 
   const stepLabel = fmtStep(s.stepSec || 300);
 
+  // Responsive Control Hints
+  let controlLine = "";
+  if (cols >= 85) {
+    controlLine = `\x1b[2mControls:  [Space] Pause/Resume  |  [d] Complete & Exit  |  [+] +${stepLabel}  |  [-] -${stepLabel}  |  [q] Quit\x1b[0m`;
+  } else if (cols >= 60) {
+    controlLine = `\x1b[2m[Space] Pause  |  [d] Done  |  [+/-] ±${stepLabel}  |  [q] Quit\x1b[0m`;
+  } else if (cols >= 40) {
+    controlLine = `\x1b[2mSpace:Pause  d:Done  +/-:±${stepLabel}  q:Quit\x1b[0m`;
+  } else {
+    controlLine = `\x1b[2mSpace:Pause d:Done q:Quit\x1b[0m`;
+  }
+
   const lines = [
-    "\x1b[1;37m======================= PYTODO FOCUS ENGINE =======================\x1b[0m",
-    `Target:    ${targetLabel}`,
-    `Session:   ${fmtTime(s.totalSec)} Total  |  Remaining: \x1b[1m${fmtTime(s.remainingSec)}\x1b[0m  |  Elapsed: ${fmtTime(s.elapsedSec)}`,
+    headerBanner,
+    targetLine,
+    sessionLine,
     "",
-    `Progress:  [${bar}] ${pct.toFixed(1)}%`,
+    `Progress:  [${bar}] ${pct.toFixed(cols < 42 ? 0 : 1)}%`,
     "",
     `Status:    ${stateBadge}`,
-    "\x1b[90m-------------------------------------------------------------------\x1b[0m",
-    `\x1b[2mControls:  [Space] Pause/Resume  |  [d] Complete & Exit  |  [+] +${stepLabel}  |  [-] -${stepLabel}  |  [q] Quit\x1b[0m`
+    divider,
+    controlLine
   ];
 
   term.write(`\x1b[H${lines.join("\r\n")}\x1b[J`);
@@ -800,7 +1199,7 @@ function startFocusInterval() {
         clearInterval(focusInterval);
         focusInterval = null;
         renderFocusSessionFrame();
-        playTone("done");
+        playTone("alarm");
         term.write("\r\n\r\n\x1b[1;32m[✔] FOCUS TIME ELAPSED! Press 'd' to mark done or 'q' to exit.\x1b[0m");
         return;
       }
@@ -843,6 +1242,7 @@ function enterFocusMode(payloadStr) {
 
   renderFocusSessionFrame();
   startFocusInterval();
+  updateMobileBarForMode(TerminalMode.FOCUS);
 }
 
 function exitFocusMode() {
@@ -857,27 +1257,34 @@ function exitFocusMode() {
   activeFocusSession = null;
   currentMode = TerminalMode.SHELL;
   term.write("\x1b[?25h\x1b[2J\x1b[H"); // Restore cursor, clear screen
+  updateMobileBarForMode(TerminalMode.SHELL);
   renderPrompt();
 }
 
 // --- 10. Bootstrap Pyodide & Mount Python Script ---
 async function init() {
-  term.writeln("\x1b[33m[*] Initializing PyTodo WebAssembly environment...\x1b[0m");
-  pyodide = await loadPyodide();
-  term.writeln("\x1b[33m[*] Loading PyTodo core engine...\x1b[0m");
+  try {
+    term.writeln("\x1b[33m[*] Initializing PyTodo WebAssembly environment...\x1b[0m");
+    pyodide = await loadPyodide();
+    window.pyodide = pyodide;
+    term.writeln("\x1b[33m[*] Loading PyTodo core engine...\x1b[0m");
 
-  const pyCode = await fetch("main.py?v=" + Date.now()).then((res) => res.text());
-  await pyodide.runPythonAsync(pyCode);
+    const pyCode = await fetch("main.py?v=" + Date.now()).then((res) => res.text());
+    await pyodide.runPythonAsync(pyCode);
 
-  term.writeln("\x1b[32m[✔] PyTodo CLI ready. Type 'help' for commands.\x1b[0m");
-  renderPrompt();
-  term.focus();
+    term.writeln("\x1b[32m[✔] PyTodo CLI ready. Type 'help' for commands.\x1b[0m");
+    renderPrompt();
+    term.focus();
 
-  // Initialize mobile quick-key accessory bar
-  setupMobileBar();
+    // Initialize mobile quick-key accessory bar
+    setupMobileBar();
 
-  // Initial background sync check on boot
-  debounceSync();
+    // Initial background sync check on boot
+    debounceSync();
+  } catch (err) {
+    term.writeln(`\r\n\x1b[31m[✘] Fatal engine boot failure: ${err.message}\x1b[0m`);
+    term.writeln("\x1b[90mEnsure your network connection allows loading WebAssembly from jsdelivr CDN.\x1b[0m");
+  }
 }
 init();
 
@@ -889,7 +1296,37 @@ function setCommandLine(newText) {
   cursorIndex = newText.length;
 }
 
-// Mobile Quick-Key Accessory Bar Setup
+// Mobile Quick-Key Accessory Bar Setup & Mode Switching
+function updateMobileBarForMode(mode) {
+  const bar = document.getElementById("mobile-bar");
+  if (!bar) return;
+  if (mode === TerminalMode.FOCUS) {
+    bar.innerHTML = `
+      <button type="button" class="m-key" data-key=" ">Pause</button>
+      <button type="button" class="m-key" data-key="d">Done</button>
+      <button type="button" class="m-key" data-key="+">+5m</button>
+      <button type="button" class="m-key" data-key="-">-5m</button>
+      <button type="button" class="m-key" data-key="q">Exit</button>
+    `;
+  } else if (mode === TerminalMode.TOP) {
+    bar.innerHTML = `
+      <button type="button" class="m-key" data-key="q">Quit</button>
+    `;
+  } else {
+    bar.innerHTML = `
+      <button type="button" class="m-key" data-key="tab">Tab</button>
+      <button type="button" class="m-key" data-key="esc">Esc</button>
+      <button type="button" class="m-key" data-key="up">↑</button>
+      <button type="button" class="m-key" data-key="down">↓</button>
+      <button type="button" class="m-key" data-cmd="ls">ls</button>
+      <button type="button" class="m-key" data-cmd="done ">done</button>
+      <button type="button" class="m-key" data-cmd="add ">add</button>
+      <button type="button" class="m-key" data-cmd="clear">clear</button>
+    `;
+  }
+  setupMobileBar();
+}
+
 function setupMobileBar() {
   const bar = document.getElementById("mobile-bar");
   if (!bar) return;
@@ -901,17 +1338,15 @@ function setupMobileBar() {
       const key = btn.getAttribute("data-key");
       const cmd = btn.getAttribute("data-cmd");
 
-      if (key === "tab") {
-        handleTerminalInput("\t");
-      } else if (key === "esc") {
-        handleTerminalInput("\x1b");
-      } else if (key === "up") {
-        handleTerminalInput("\x1b[A");
-      } else if (key === "down") {
-        handleTerminalInput("\x1b[B");
+      if (key) {
+        handleTerminalInput(key);
       } else if (cmd) {
         if (cmd.endsWith(" ")) {
-          setCommandLine(inputBuffer + cmd);
+          if (!inputBuffer.trim()) {
+            setCommandLine(cmd);
+          } else {
+            setCommandLine(inputBuffer.trimEnd() + " " + cmd.trimStart());
+          }
           term.focus();
         } else {
           setCommandLine(cmd);
@@ -921,7 +1356,6 @@ function setupMobileBar() {
     };
 
     btn.addEventListener("pointerdown", onTrigger);
-    btn.addEventListener("touchstart", (e) => e.preventDefault(), { passive: false });
   });
 }
 
@@ -941,6 +1375,7 @@ async function handleTerminalInput(data) {
     if (data === " " || data === "p" || data === "P") {
       if (activeFocusSession) {
         activeFocusSession.isPaused = !activeFocusSession.isPaused;
+        playTone("click");
         renderFocusSessionFrame();
       }
       return;
@@ -970,6 +1405,7 @@ async function handleTerminalInput(data) {
         const step = activeFocusSession.stepSec || 300;
         activeFocusSession.totalSec += step;
         activeFocusSession.remainingSec += step;
+        playTone("step_up");
         if (!focusInterval && !activeFocusSession.isPaused && activeFocusSession.remainingSec > 0) {
           startFocusInterval();
         }
@@ -992,6 +1428,7 @@ async function handleTerminalInput(data) {
             activeFocusSession.elapsedSec + activeFocusSession.remainingSec,
             activeFocusSession.totalSec - actualDeduct
           );
+          playTone("step_down");
           renderFocusSessionFrame();
         }
       }
@@ -1065,18 +1502,24 @@ async function handleTerminalInput(data) {
       if (matches.length === 1) {
         // Single match -> Complete inline
         const completedWord = matches[0];
-        const tokens = inputBuffer.trimStart().split(" ");
+        const beforeCursor = inputBuffer.slice(0, cursorIndex);
+        const afterCursor = inputBuffer.slice(cursorIndex);
+        const tokens = beforeCursor.trimStart().split(/\s+/);
         if (tokens.length <= 1) {
-          setCommandLine(completedWord + " ");
+          setCommandLine(completedWord + " " + afterCursor.trimStart());
         } else {
           tokens[tokens.length - 1] = completedWord;
-          setCommandLine(tokens.join(" ") + " ");
+          const newBefore = (beforeCursor.startsWith(" ") ? " " : "") + tokens.join(" ") + " ";
+          setCommandLine(newBefore + afterCursor.trimStart());
         }
       } else if (matches.length > 1) {
         // Multiple matches -> Print candidates and restore prompt
         term.writeln(`\r\n\x1b[90m${matches.join("   ")}\x1b[0m`);
         renderPrompt();
         term.write(inputBuffer);
+        if (cursorIndex < inputBuffer.length) {
+          term.write(`\x1b[${inputBuffer.length - cursorIndex}D`);
+        }
       }
     } catch (e) {
       // Ignore tab errors
@@ -1102,24 +1545,32 @@ async function handleTerminalInput(data) {
     return;
   }
 
-  // 5. Backspace: \u007F or \b
+  // 5. Backspace: \u007F or \b (with surrogate pair & wide-character clean redraw)
   if (data === "\u007F" || data === "\b") {
     if (cursorIndex > 0) {
-      inputBuffer = inputBuffer.slice(0, cursorIndex - 1) + inputBuffer.slice(cursorIndex);
-      cursorIndex--;
-      // Redraw remainder of line
-      term.write("\b \b");
+      let delCount = 1;
+      if (cursorIndex >= 2) {
+        const prevCode = inputBuffer.charCodeAt(cursorIndex - 1);
+        const leadingCode = inputBuffer.charCodeAt(cursorIndex - 2);
+        if (prevCode >= 0xDC00 && prevCode <= 0xDFFF && leadingCode >= 0xD800 && leadingCode <= 0xDBFF) {
+          delCount = 2;
+        }
+      }
+      inputBuffer = inputBuffer.slice(0, cursorIndex - delCount) + inputBuffer.slice(cursorIndex);
+      cursorIndex -= delCount;
+
+      term.write("\r\x1b[K\x1b[1;36mtodo>\x1b[0m " + inputBuffer);
       if (cursorIndex < inputBuffer.length) {
-        term.write(inputBuffer.slice(cursorIndex) + " ");
-        const backCount = inputBuffer.length - cursorIndex + 1;
+        const backCount = inputBuffer.length - cursorIndex;
         term.write(`\x1b[${backCount}D`);
       }
     }
     return;
   }
 
-  // 6. Enter Key: \r
+  // 6. Enter Key: \r (protected by isCommandRunning mutex)
   if (data === "\r") {
+    if (isCommandRunning) return;
     term.writeln("");
     const command = inputBuffer.trim();
     inputBuffer = "";
@@ -1132,6 +1583,7 @@ async function handleTerminalInput(data) {
         commandHistory.push(command);
       }
 
+      isCommandRunning = true;
       try {
         const escaped = JSON.stringify(command);
         const result = await pyodide.runPythonAsync(`handle_command(${escaped})`);
@@ -1143,6 +1595,8 @@ async function handleTerminalInput(data) {
       } catch (err) {
         term.writeln(`\x1b[31mExecution error: ${err.message}\x1b[0m`);
         playTone("fail");
+      } finally {
+        isCommandRunning = false;
       }
     }
 
@@ -1152,14 +1606,17 @@ async function handleTerminalInput(data) {
     return;
   }
 
-  // 7. Printable Characters (filter out unknown escape sequences)
-  if (data >= " " && !data.startsWith("\x1b")) {
-    inputBuffer = inputBuffer.slice(0, cursorIndex) + data + inputBuffer.slice(cursorIndex);
-    cursorIndex += data.length;
-    term.write(data);
-    if (cursorIndex < inputBuffer.length) {
-      term.write(inputBuffer.slice(cursorIndex));
-      term.write(`\x1b[${inputBuffer.length - cursorIndex}D`);
+  // 7. Printable Characters & Multi-character Pastes (sanitizes embedded newlines)
+  if (!data.startsWith("\x1b") && data !== "\r" && data !== "\n") {
+    const sanitized = data.replace(/[\r\n]+/g, " ");
+    if (sanitized.length > 0) {
+      inputBuffer = inputBuffer.slice(0, cursorIndex) + sanitized + inputBuffer.slice(cursorIndex);
+      cursorIndex += sanitized.length;
+      term.write(sanitized);
+      if (cursorIndex < inputBuffer.length) {
+        term.write(inputBuffer.slice(cursorIndex));
+        term.write(`\x1b[${inputBuffer.length - cursorIndex}D`);
+      }
     }
   }
 }
@@ -1168,6 +1625,13 @@ term.onData(handleTerminalInput);
 // --- 12. Service Worker Registration ---
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(console.error);
+    try {
+      const swUrl = new URL("sw.js", window.location.href).href;
+      navigator.serviceWorker.register(swUrl, { scope: "./" }).catch((err) => {
+        console.warn("[SW] Registration skipped:", err);
+      });
+    } catch (e) {
+      console.warn("[SW] Registration error:", e);
+    }
   });
-}
+}

@@ -93,6 +93,8 @@ import main
 
 class TestNewFeatures(unittest.TestCase):
     def setUp(self):
+        main.window = mock_window
+        sys.modules['js'].window = mock_window
         mock_storage.clear()
         bridge.iso_date = "2026-09-20"
         bridge.retention = 3

@@ -43,13 +43,21 @@ Traditional to-do apps act as digital graveyards for forgotten intentions; tasks
   * If a date transition occurs, incomplete tasks from previous days are purged from the active view.
   * Optionally, failed tasks are recorded in an audit log (see [3.1](#31-accountability--punishment-mechanics)) before the active board resets to clean state for the new day.
 
-### 2.2 Task Deadlines & Target Durations
+### 2.2 Task Deadlines, Target Durations & Natural Language Parser
 * **Syntax Support**:
-  * Absolute Deadline: `add "Write documentation" --due 18:30` (or `by 6pm`)
-  * Estimated Duration: `add "Workout" --duration 45m`
+  * **Natural Language (Frictionless `add`)**:
+    * `add Finish presentation by 5pm for 45m` $\rightarrow$ Sets `due: 17:00`, `duration: 45m`
+    * `add Team sync at 2:30pm` $\rightarrow$ Sets `due: 14:30`
+    * `add Workout for 1h` $\rightarrow$ Sets `duration: 60m`
+    * `add Deploy hotfix in 45m` $\rightarrow$ Sets relative deadline
+    * `subtask 1 Review PR at 4pm for 20m` $\rightarrow$ Sets subtask deadline and duration
+  * **Explicit POSIX Flags**:
+    * Absolute Deadline: `add "Write documentation" --due 18:30` (or `by 6pm`)
+    * Estimated Duration: `add "Workout" --duration 45m`
+  * **Precedence**: Explicit flags strictly take precedence over natural language heuristics.
 * **Display in `ls`**:
-  * Shows remaining time or exact deadline next to the task.
-  * Dynamic color grading (e.g., green when plenty of time remains, switching to flashing red when deadline is imminent).
+  * Shows remaining time or exact deadline next to the task and subtasks.
+  * Dynamic color grading (dual percentage progression with absolute ceilings: calm green, yellow warning, orange urgent, blinking red critical).
 
 ### 2.3 Subtask Hierarchy
 * **Concept**: Any primary task can hold multiple subordinate checkpoints.
@@ -226,6 +234,7 @@ Use this checklist to decide which items to include in the implementation plan:
 ### User-Requested Core Features
 - [x] **Midnight Wipe**: Incomplete tasks automatically expire and clear at 00:00 system time.
 - [x] **Due Time & Duration**: Optional `--due HH:MM` and `--duration Xm` flags with color alerts.
+- [x] **Natural Language Task & Subtask Parser**: Automatic deadline & duration extraction from title tokens without flags (`by 5pm`, `at 2:30pm`, `for 45m`).
 - [x] **Subtask Trees**: Support nested subtasks with progress counters (`[X/Y done]`).
 - [x] **Task Editing**: Modify task name, due time, description, and manage subtasks via `edit`.
 - [x] **6–7 Digit Key Device Sync**: Connect devices instantly using a 6 or 7-digit code without passwords.

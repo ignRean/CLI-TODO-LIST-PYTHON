@@ -25,7 +25,7 @@ sys.modules["js"] = MagicMock()
 sys.modules["js"].window = mock_window
 sys.modules["js"].supabaseClient = MagicMock()
 
-sys.path.insert(0, os.path.abspath("."))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import main
 
 def test_aliases():

@@ -2,21 +2,21 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
   <title>PyTodo CLI</title>
   <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#000000" />
   
   <!-- Terminal Emulator Styles & Scripts -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
-  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" crossorigin="anonymous" />
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js" crossorigin="anonymous"></script>
   
   <!-- Client-Side WebAssembly Python Runtime -->
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js" crossorigin="anonymous"></script>
   
   <!-- Supabase Cloud SDK -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous"></script>
   
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -37,6 +37,7 @@
         </div>
       </div>
     </div>
+    <div id="terminal-cushion" aria-hidden="true"></div>
     <nav id="mobile-bar" aria-label="Terminal Quick Keys" role="toolbar">
       <button type="button" class="m-key" data-key="tab">Tab</button>
       <button type="button" class="m-key" data-key="esc">Esc</button>
@@ -48,6 +49,6 @@
       <button type="button" class="m-key" data-cmd="clear">clear</button>
     </nav>
   </div>
-  <script src="main.js?v=2.2.4"></script>
+  <script src="main.js?v=2.2.6"></script>
 </body>
 </html>

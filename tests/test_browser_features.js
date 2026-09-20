@@ -30,7 +30,8 @@ async function runTests() {
       // console.log("  [Browser Console]:", msg.text());
     });
 
-    await page.goto("http://localhost:8000/", { waitUntil: "networkidle" });
+    const appUrl = "http://localhost:8000/github-upload/";
+    await page.goto(appUrl, { waitUntil: "networkidle" });
 
     console.log("[*] Waiting for Pyodide and WebAssembly environment initialization...");
     await page.waitForFunction(() => {
@@ -100,9 +101,13 @@ async function runTests() {
     // -------------------------------------------------------------
     // Test 7: Device Pairing / Link Generation
     // -------------------------------------------------------------
-    console.log("\n[*] 7. Testing 6-Digit Pairing Key Generation ('link generate')...");
+    console.log("\n[*] 7. Testing 6-Character Base32 Pairing Key Generation ('link generate')...");
     await executeCommand("link generate", "Pairing key generated:", 8000);
     results.push({ test: "Device Pairing Key Generation", status: "PASSED" });
+
+    console.log("\n[*] 7b. Testing Active Pairing Key Query ('code')...");
+    await executeCommand("code", "Active Pairing Key:", 8000);
+    results.push({ test: "CLI 'code' Command Display", status: "PASSED" });
 
     // -------------------------------------------------------------
     // Test 8: Web Audio FX Test
@@ -110,6 +115,37 @@ async function runTests() {
     console.log("\n[*] 8. Testing 8-Bit Retro Audio FX ('sound test')...");
     await executeCommand("sound test", "Playing test retro chime", 8000);
     results.push({ test: "Web Audio FX Synth", status: "PASSED" });
+
+    // Test 8b: Test all 15 procedural retro audio sound synthesizers
+    console.log("\n[*] 8b. Testing all 15 procedural retro audio sound synthesizers...");
+    const synthResult = await page.evaluate(() => {
+      const sounds = [
+        "done", "subtask", "fail", "wipe",
+        "add", "rm", "undone", "alarm", "celebration", "streak",
+        "revive", "click", "step_up", "step_down", "theme"
+      ];
+      try {
+        sounds.forEach(s => window.PyTodoBridge.playSound(s));
+        return { success: true, count: sounds.length };
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    });
+    if (!synthResult.success) throw new Error("Audio synth error: " + synthResult.error);
+    console.log(`  ✔ Successfully synthesized all ${synthResult.count} 8-bit retro audio sound effects.`);
+    results.push({ test: "All 15 Retro Audio FX Synths", status: "PASSED" });
+
+    // Test 8c: Test Terminal Cushion DOM Presence & Dimensions
+    console.log("\n[*] 8c. Testing Adaptive Terminal Cushion Element...");
+    const cushionInfo = await page.evaluate(() => {
+      const c = document.getElementById("terminal-cushion");
+      if (!c) return { exists: false };
+      const style = window.getComputedStyle(c);
+      return { exists: true, flexBasis: style.flexBasis, display: style.display };
+    });
+    if (!cushionInfo.exists) throw new Error("Missing #terminal-cushion element in DOM");
+    console.log("  ✔ #terminal-cushion successfully rendered with adaptive layout styles.");
+    results.push({ test: "Adaptive Terminal Cushion", status: "PASSED" });
 
     // -------------------------------------------------------------
     // Test 9: Pomodoro Focus Mode Screen
@@ -145,6 +181,26 @@ async function runTests() {
     console.log("  ✔ Exited top mode back to shell.");
     results.push({ test: "Live HTOP Dashboard Monitor", status: "PASSED" });
 
+    // -------------------------------------------------------------
+    // Test 10b: Narrow Window Ticker Stability (No Newline Drift)
+    // -------------------------------------------------------------
+    console.log("\n[*] 10b. Testing Narrow Window Ticker Stability (No Newline Drift)...");
+    await page.setViewportSize({ width: 420, height: 600 });
+    await page.waitForTimeout(1000);
+    const textBefore = await page.evaluate(() => document.body.innerText);
+    const countBefore = (textBefore.match(/todo>/g) || []).length;
+    // Wait 3.5 seconds across 3 countdown ticker pulses
+    await page.waitForTimeout(3500);
+    const textAfter = await page.evaluate(() => document.body.innerText);
+    const countAfter = (textAfter.match(/todo>/g) || []).length;
+    console.log(`  ✔ Ticker prompt count: before=${countBefore}, after=${countAfter}`);
+    const noDownwardsDrift = countAfter <= countBefore + 1;
+    results.push({ test: "Narrow Window Ticker Stability (No Downward Drift)", status: noDownwardsDrift ? "PASSED" : "FAILED" });
+
+    // Restore desktop viewport for screenshot
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(500);
+
     // Take Desktop Screenshot
     const desktopScreenshot = path.join(outDir, "test-features-desktop.png");
     await page.screenshot({ path: desktopScreenshot });
@@ -171,18 +227,20 @@ async function runTests() {
       hasTouch: true
     });
     const mobilePage = await mobileContext.newPage();
-    await mobilePage.goto("http://localhost:8000/", { waitUntil: "networkidle" });
+    await mobilePage.goto(appUrl, { waitUntil: "networkidle" });
 
     await mobilePage.waitForFunction(() => {
       return document.querySelector(".xterm-rows") && document.body.innerText.includes("todo>");
     }, { timeout: 35000 });
 
-    const isMobileBarVisible = await mobilePage.evaluate(() => {
+    const isMobileBarImmediatelyVisible = await mobilePage.evaluate(() => {
       const bar = document.getElementById("mobile-bar");
-      return window.getComputedStyle(bar).display === "flex";
+      const rect = bar.getBoundingClientRect();
+      const cs = window.getComputedStyle(bar);
+      return cs.display === "flex" && rect.height > 0 && rect.bottom <= window.innerHeight + 1 && rect.top < window.innerHeight;
     });
-    console.log("  ✔ Mobile accessory bar visible on mobile touch device:", isMobileBarVisible);
-    results.push({ test: "Mobile Touch Accessory Bar Visible", status: isMobileBarVisible ? "PASSED" : "FAILED" });
+    console.log("  ✔ Mobile accessory bar visible immediately on load (before typing):", isMobileBarImmediatelyVisible);
+    results.push({ test: "Mobile Touch Accessory Bar Immediately Visible", status: isMobileBarImmediatelyVisible ? "PASSED" : "FAILED" });
 
     // Test clicking mobile bar button [ls]
     console.log("  [*] Clicking mobile bar [ls] button...");
