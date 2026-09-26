@@ -30,7 +30,7 @@ Traditional to-do apps act as digital graveyards for forgotten intentions; tasks
 **PyTodo CLI** treats each day as a closed, high-stakes sprint:
 1. **Urgency by Design**: Every task has an inescapable expiration horizon: **midnight of the current day** (system time).
 2. **Punishment / Loss Aversion**: Incomplete tasks do not roll over silently. They are either wiped or logged in a permanent tally of failed commitments.
-3. **Frictionless Terminal Interface**: Runs in any browser as an instant PWA powered by WebAssembly Python (Pyodide) and xterm.js.
+3. **Frictionless Terminal Interface**: Runs in any browser as an instant PWA powered by WebAssembly Python (Pyodide) and xterm.js deployed live at [pytodo.netlify.app](https://pytodo.netlify.app).
 
 ---
 

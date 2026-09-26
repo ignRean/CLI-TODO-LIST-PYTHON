@@ -2,6 +2,13 @@
 
 > **High-urgency, ephemeral terminal to-do system designed to eliminate procrastination through loss aversion, daily accountability, and cross-device synchronization.**
 
+[![Live Web App](https://img.shields.io/badge/Live%20Demo-pytodo.netlify.app-00C7B7?style=for-the-badge&logo=netlify&logoColor=white)](https://pytodo.netlify.app)
+[![PWA Ready](https://img.shields.io/badge/PWA-Installable-5A0FC8?style=for-the-badge&logo=pwa&logoColor=white)](https://pytodo.netlify.app)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776AB.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+
+🌐 **Live Web Application & Online Terminal:** [https://pytodo.netlify.app](https://pytodo.netlify.app)
+
 ---
 
 ## 🌟 Overview
@@ -11,7 +18,7 @@ Traditional to-do apps act as digital graveyards for forgotten tasks where items
 - ⏳ **Urgency by Design**: Every task belongs to the current calendar day and expires at midnight.
 - 🎯 **Subtask Hierarchies & Deadlines**: Add tasks with strict deadlines (`--due 18:30`), target durations (`--duration 45m`), and nested checkpoints.
 - 🔥 **Discipline & Loss Aversion**: Incomplete tasks trigger accountability logs and streak tracking.
-- 🌐 **Frictionless PWA & Terminal**: Run natively in your terminal with Python, or in the browser via an instant WebAssembly (Pyodide + xterm.js) Progressive Web Application.
+- 🌐 **Frictionless PWA & Terminal**: Run natively in your terminal with Python, or in the browser via an instant WebAssembly (Pyodide + xterm.js) Progressive Web Application at [pytodo.netlify.app](https://pytodo.netlify.app).
 - 🔄 **Cross-Device Sync**: Offline-first storage with frictionless numeric pairing codes and automatic synchronization.
 
 ---
@@ -36,7 +43,19 @@ Traditional to-do apps act as digital graveyards for forgotten tasks where items
 
 ## 🚀 Quick Start
 
-### 1. Running the CLI (Python 3.10+)
+### 1. 🌐 Live Online Terminal (No Setup Required)
+
+Experience PyTodo immediately in your browser without installing anything:
+
+👉 **[Launch PyTodo on Netlify: https://pytodo.netlify.app](https://pytodo.netlify.app)**
+
+- **In-Browser Python**: Powered by WebAssembly (Pyodide) and xterm.js terminal emulation.
+- **Installable PWA**: Install to your home screen or desktop for a standalone offline app experience.
+- **Cross-Device Sync**: Pair with your other devices using easy 6-digit sync codes.
+
+---
+
+### 2. Running the CLI Locally (Python 3.10+)
 
 Run directly with Python:
 
@@ -60,7 +79,7 @@ python main.py ls
 python main.py done 1
 ```
 
-### 2. Running the Web Application (Local Server)
+### 3. Running the Web Application Locally
 
 Launch any static web server:
 
